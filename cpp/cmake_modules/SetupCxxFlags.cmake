@@ -38,6 +38,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # shared libraries
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# if no build build type is specified, default to debug builds
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif(NOT CMAKE_BUILD_TYPE)
+string (TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
+
 # compiler flags that are common across debug/release builds
 if (WIN32)
   # TODO(wesm): Change usages of C runtime functions that MSVC says are
@@ -71,10 +77,10 @@ if (WIN32)
 
     if (ARROW_USE_STATIC_CRT)
       foreach (c_flag CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_DEBUG
-		      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO
-		      CMAKE_C_FLAGS CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_DEBUG
-		      CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO)
-	string(REPLACE "/MD" "-MT" ${c_flag} "${${c_flag}}")
+          CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO
+          CMAKE_C_FLAGS CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_DEBUG
+          CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO)
+        string(REPLACE "/MD" "-MT" ${c_flag} "${${c_flag}}")
       endforeach()
     endif()
 
@@ -86,16 +92,28 @@ else()
   set(CXX_COMMON_FLAGS "")
 endif()
 
-# Build warning level (CHECKIN, EVERYTHING, etc.)
+# BUILD_WARNING_LEVEL add warning/error compiler flags. The possible values are
+# - RELEASE: `-Werror` is not provide, thus warning do not halt the build.
+# - CHECKIN: Imply `-Werror -Wall` and some other warnings.
+# - EVERYTHING: Like `CHECKIN`, but possible extra flags depending on the
+#               compiler, including `-Wextra`, `-Weverything`, `-pedantic`.
+#               This is the most aggressive warning level.
 
-# if no build warning level is specified, default to development warning level
+# Defaults BUILD_WARNING_LEVEL to `CHECKIN`, unless CMAKE_BUILD_TYPE is
+# `RELEASE`, then it will default to `PRODUCTION`. The goal of defaulting to
+# `CHECKIN` is to avoid friction with long response time from CI.
 if (NOT BUILD_WARNING_LEVEL)
-  set(BUILD_WARNING_LEVEL Production)
+  if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+    set(BUILD_WARNING_LEVEL PRODUCTION)
+  else()
+    set(BUILD_WARNING_LEVEL CHECKIN)
+  endif()
 endif(NOT BUILD_WARNING_LEVEL)
+string(TOUPPER ${BUILD_WARNING_LEVEL} BUILD_WARNING_LEVEL)
 
-string(TOUPPER ${BUILD_WARNING_LEVEL} UPPERCASE_BUILD_WARNING_LEVEL)
+message(STATUS "Arrow build warning level: ${BUILD_WARNING_LEVEL}")
 
-if ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "CHECKIN")
+if ("${BUILD_WARNING_LEVEL}" STREQUAL "CHECKIN")
   # Pre-checkin builds
   if ("${COMPILER_FAMILY}" STREQUAL "msvc")
     string(REPLACE "/W3" "" CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}")
@@ -144,7 +162,7 @@ if ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "CHECKIN")
   else()
     message(FATAL_ERROR "Unknown compiler. Version info:\n${COMPILER_VERSION_FULL}")
   endif()
-elseif ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "EVERYTHING")
+elseif ("${BUILD_WARNING_LEVEL}" STREQUAL "EVERYTHING")
   # Pedantic builds for fixing warnings
   if ("${COMPILER_FAMILY}" STREQUAL "msvc")
     string(REPLACE "/W3" "" CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}")
@@ -273,7 +291,7 @@ if (NOT WIN32 AND NOT APPLE)
   GET_GOLD_VERSION()
   if (GOLD_VERSION)
     set(MUST_USE_GOLD 1)
-  else()
+  elseif(ARROW_USE_LD_GOLD)
     # Can the compiler optionally enable the gold linker?
     GET_GOLD_VERSION("-fuse-ld=gold")
 
@@ -341,10 +359,11 @@ endif()
 #   -DARROW_CXXFLAGS="-g" to add them
 if (NOT MSVC)
   if(ARROW_GGDB_DEBUG)
-    set(C_FLAGS_DEBUG "-ggdb -O0")
-    set(C_FLAGS_FASTDEBUG "-ggdb -O1")
-    set(CXX_FLAGS_DEBUG "-ggdb -O0")
-    set(CXX_FLAGS_FASTDEBUG "-ggdb -O1")
+    set(ARROW_DEBUG_SYMBOL_TYPE "gdb")
+    set(C_FLAGS_DEBUG "-g${ARROW_DEBUG_SYMBOL_TYPE} -O0")
+    set(C_FLAGS_FASTDEBUG "-g${ARROW_DEBUG_SYMBOL_TYPE} -O1")
+    set(CXX_FLAGS_DEBUG "-g${ARROW_DEBUG_SYMBOL_TYPE} -O0")
+    set(CXX_FLAGS_FASTDEBUG "-g${ARROW_DEBUG_SYMBOL_TYPE} -O1")
   else()
     set(C_FLAGS_DEBUG "-g -O0")
     set(C_FLAGS_FASTDEBUG "-g -O1")
@@ -361,12 +380,7 @@ set(C_FLAGS_PROFILE_BUILD "${CXX_FLAGS_RELEASE} -fprofile-use")
 set(CXX_FLAGS_PROFILE_GEN "${CXX_FLAGS_RELEASE} -fprofile-generate")
 set(CXX_FLAGS_PROFILE_BUILD "${CXX_FLAGS_RELEASE} -fprofile-use")
 
-# if no build build type is specified, default to debug builds
-if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Debug)
-endif(NOT CMAKE_BUILD_TYPE)
 
-string (TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 
 # Set compile flags based on the build type.
 message("Configured for ${CMAKE_BUILD_TYPE} build (set with cmake -DCMAKE_BUILD_TYPE={release,debug,...})")
@@ -397,3 +411,22 @@ else()
 endif()
 
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+
+# ----------------------------------------------------------------------
+# MSVC-specific linker options
+
+if (MSVC)
+  set(MSVC_LINKER_FLAGS)
+  if (MSVC_LINK_VERBOSE)
+    set(MSVC_LINKER_FLAGS "${MSVC_LINKER_FLAGS} /VERBOSE:LIB")
+  endif()
+  if (NOT ARROW_USE_STATIC_CRT)
+    set(MSVC_LINKER_FLAGS "${MSVC_LINKER_FLAGS} /NODEFAULTLIB:LIBCMT")
+    set(CMAKE_EXE_LINKER_FLAGS
+      "${CMAKE_EXE_LINKER_FLAGS} ${MSVC_LINKER_FLAGS}")
+    set(CMAKE_MODULE_LINKER_FLAGS
+      "${CMAKE_MODULE_LINKER_FLAGS} ${MSVC_LINKER_FLAGS}")
+    set(CMAKE_SHARED_LINKER_FLAGS
+      "${CMAKE_SHARED_LINKER_FLAGS} ${MSVC_LINKER_FLAGS}")
+  endif()
+endif()

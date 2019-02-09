@@ -41,16 +41,16 @@ CONDA_ENV_DIR=$TRAVIS_BUILD_DIR/pyarrow-test-$PYTHON_VERSION
 # python-test fails.
 export ZLIB_HOME=$CONDA_ENV_DIR
 
-if [ $ARROW_TRAVIS_PYTHON_JVM == "1" ]; then
+if [ "$ARROW_TRAVIS_PYTHON_JVM" == "1" ]; then
   CONDA_JVM_DEPS="jpype1"
 fi
 
 conda create -y -q -p $CONDA_ENV_DIR \
       --file $TRAVIS_BUILD_DIR/ci/conda_env_python.yml \
       nomkl \
-      cmake \
       pip \
       numpy=1.14 \
+      'libgfortran<4' \
       python=${PYTHON_VERSION} \
       ${CONDA_JVM_DEPS}
 

@@ -21,6 +21,7 @@ add_custom_target(arrow_flight)
 ARROW_INSTALL_ALL_HEADERS("arrow/flight")
 
 SET(ARROW_FLIGHT_STATIC_LINK_LIBS
+  protobuf_static
   grpc_grpcpp_static
   grpc_grpc_static
   grpc_gpr_static
@@ -45,7 +46,7 @@ set(FLIGHT_GENERATED_PROTO_FILES
   "${CMAKE_CURRENT_BINARY_DIR}/Flight.grpc.pb.cc"
   "${CMAKE_CURRENT_BINARY_DIR}/Flight.grpc.pb.h")
 
-set(PROTO_DEPENDS ${FLIGHT_PROTO} ${PROTOBUF_LIBRARY})
+set(PROTO_DEPENDS ${FLIGHT_PROTO} ${PROTOBUF_LIBRARY} grpc)
 
 add_custom_command(
   OUTPUT ${FLIGHT_GENERATED_PROTO_FILES}
@@ -69,6 +70,7 @@ set(ARROW_FLIGHT_SRCS
   Flight.pb.cc
   Flight.grpc.pb.cc
   internal.cc
+  serialization-internal.cc
   server.cc
   types.cc
 )
@@ -89,6 +91,18 @@ if (ARROW_BUILD_TESTS OR ARROW_BUILD_BENCHMARKS)
     ${ARROW_FLIGHT_TEST_STATIC_LINK_LIBS}
     gflags_static
     ${GTEST_LIBRARY})
+
+  add_executable(flight-test-integration-server test-integration-server.cc)
+  target_link_libraries(flight-test-integration-server
+    ${ARROW_FLIGHT_TEST_STATIC_LINK_LIBS}
+    gflags_static
+    gtest_static)
+
+  add_executable(flight-test-integration-client test-integration-client.cc)
+  target_link_libraries(flight-test-integration-client
+    ${ARROW_FLIGHT_TEST_STATIC_LINK_LIBS}
+    gflags_static
+    gtest_static)
 
   # This is needed for the unit tests
   if (ARROW_BUILD_TESTS)
@@ -115,6 +129,7 @@ if (ARROW_BUILD_BENCHMARKS)
     perf.pb.cc)
   target_link_libraries(flight-perf-server
     arrow_flight_static
+    arrow_testing_static
     ${ARROW_FLIGHT_STATIC_LINK_LIBS}
     gflags_static
     ${GTEST_LIBRARY})
@@ -124,6 +139,7 @@ if (ARROW_BUILD_BENCHMARKS)
     perf.pb.cc)
   target_link_libraries(flight-benchmark
     arrow_flight_static
+    arrow_testing_static
     ${ARROW_FLIGHT_STATIC_LINK_LIBS}
     gflags_static
     ${GTEST_LIBRARY})

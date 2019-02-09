@@ -58,6 +58,8 @@ include(FindPkgConfig)
 
 include(GNUInstallDirs)
 
+cmake_policy(SET CMP0025 NEW)
+
 # Compatibility with CMake 3.1
 if(POLICY CMP0054)
   # http://www.cmake.org/cmake/help/v3.1/policy/CMP0054.html
@@ -72,7 +74,9 @@ endif()
 
 set(BUILD_SUPPORT_DIR "${CMAKE_SOURCE_DIR}/build-support")
 
-set(CLANG_FORMAT_VERSION "6.0")
+set(ARROW_LLVM_VERSION "7.0")
+STRING(REGEX REPLACE "^([0-9]+)\\.[0-9]+" "\\1" ARROW_LLVM_MAJOR_VERSION "${ARROW_LLVM_VERSION}")
+STRING(REGEX REPLACE "^[0-9]+\\.([0-9]+)" "\\1" ARROW_LLVM_MINOR_VERSION "${ARROW_LLVM_VERSION}")
 find_package(ClangTools)
 if ("$ENV{CMAKE_EXPORT_COMPILE_COMMANDS}" STREQUAL "1" OR CLANG_TIDY_FOUND)
   # Generate a Clang compile_commands.json "compilation database" file for use
@@ -120,6 +124,10 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
   option(ARROW_USE_CCACHE
     "Use ccache when compiling (if available)"
     ON)
+
+  option(ARROW_USE_LD_GOLD
+    "Use ld.gold for linking on Linux (if available)"
+    OFF)
 
   option(ARROW_USE_TSAN
     "Enable Thread Sanitizer checks"
@@ -303,14 +311,22 @@ Note that this requires linking Boost statically"
   # Windows options
 
   if (MSVC)
+    option(MSVC_LINK_VERBOSE
+      "Pass verbose linking options when linking libraries and executables"
+      OFF)
+
     option(ARROW_USE_CLCACHE
       "Use clcache if available"
       ON)
 
     set(BROTLI_MSVC_STATIC_LIB_SUFFIX "-static" CACHE STRING
       "Brotli static lib suffix used on Windows with MSVC (default -static)")
+    set(PROTOBUF_MSVC_STATIC_LIB_SUFFIX "" CACHE STRING
+      "Protobuf static lib suffix used on Windows with MSVC (default is empty string)")
+    set(RE2_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
+      "re2 static lib suffix used on Windows with MSVC (default is _static)")
     set(SNAPPY_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
-      "Snappy static lib suffix used on Windows with MSVC (default is empty string)")
+      "Snappy static lib suffix used on Windows with MSVC (default is _static)")
     set(LZ4_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
       "Lz4 static lib suffix used on Windows with MSVC (default _static)")
     set(ZSTD_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
@@ -796,8 +812,9 @@ set(ARROW_TEST_STATIC_LINK_LIBS
   arrow_testing_static
   arrow_static
   ${ARROW_LINK_LIBS}
-  ${GTEST_MAIN_LIBRARY}
-  ${GTEST_LIBRARY})
+  ${GTEST_LIBRARY}
+  ${GMOCK_MAIN_LIBRARY}
+  ${GMOCK_LIBRARY})
 
 set(ARROW_TEST_SHARED_LINK_LIBS
   arrow_testing_shared
@@ -807,8 +824,9 @@ set(ARROW_TEST_SHARED_LINK_LIBS
   ${BOOST_SYSTEM_LIBRARY}
   ${BOOST_FILESYSTEM_LIBRARY}
   ${BOOST_REGEX_LIBRARY}
-  ${GTEST_MAIN_LIBRARY}
-  ${GTEST_LIBRARY})
+  ${GTEST_LIBRARY}
+  ${GMOCK_MAIN_LIBRARY}
+  ${GMOCK_LIBRARY})
 
 if(NOT MSVC)
   set(ARROW_TEST_SHARED_LINK_LIBS

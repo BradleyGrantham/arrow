@@ -21,6 +21,13 @@
 export NODE_NO_WARNINGS=1
 export MINICONDA=$HOME/miniconda
 export CONDA_PKGS_DIRS=$HOME/.conda_packages
+export CONDA_BINUTILS_VERSION=2.31
+
+export ARROW_LLVM_VERSION=7.0
+export CONDA_LLVM_VERSION="7.0.*"
+
+# extract the major version
+export ARROW_LLVM_MAJOR_VERSION=$(echo $ARROW_LLVM_VERSION | cut -d. -f1)
 
 export ARROW_CPP_DIR=$TRAVIS_BUILD_DIR/cpp
 export ARROW_PYTHON_DIR=$TRAVIS_BUILD_DIR/python
@@ -79,7 +86,7 @@ if [ $TRAVIS_OS_NAME == "linux" ]; then
   export DISTRO_CODENAME=`lsb_release -s -c`
 fi
 
-if [ $TRAVIS_OS_NAME == "linux" ] && [ "$DISTRO_CODENAME" != "trusty" ]; then
+if [ "$ARROW_TRAVIS_USE_SYSTEM_JAVA" == "1" ]; then
     # Use the Ubuntu-provided OpenJDK
     unset JAVA_HOME
     export TRAVIS_MVN=/usr/bin/mvn

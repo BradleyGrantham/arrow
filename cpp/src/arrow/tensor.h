@@ -82,6 +82,7 @@ class ARROW_EXPORT Tensor {
 
   int ndim() const { return static_cast<int>(shape_.size()); }
 
+  const std::vector<std::string>& dim_names() const { return dim_names_; }
   const std::string& dim_name(int i) const;
 
   /// Total number of value cells in the tensor
@@ -102,6 +103,9 @@ class ARROW_EXPORT Tensor {
   Type::type type_id() const;
 
   bool Equals(const Tensor& other) const;
+
+  /// Compute the number of non-zero values in the tensor
+  Status CountNonZero(int64_t* result) const;
 
  protected:
   Tensor() {}

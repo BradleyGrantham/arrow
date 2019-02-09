@@ -37,6 +37,8 @@ import pandas as pd
 
 DEFAULT_PLASMA_STORE_MEMORY = 10 ** 8
 USE_VALGRIND = os.getenv("PLASMA_VALGRIND") == "1"
+EXTERNAL_STORE = "hashtable://test"
+SMALL_OBJECT_SIZE = 9000
 
 
 def random_name():
@@ -110,15 +112,11 @@ def assert_get_object_equal(unit_test, client1, client2, object_id,
 class TestPlasmaClient(object):
 
     def setup_method(self, test_method):
-        use_one_memory_mapped_file = (test_method ==
-                                      self.test_use_one_memory_mapped_file)
-
         import pyarrow.plasma as plasma
         # Start Plasma store.
         self.plasma_store_ctx = plasma.start_plasma_store(
             plasma_store_memory=DEFAULT_PLASMA_STORE_MEMORY,
-            use_valgrind=USE_VALGRIND,
-            use_one_memory_mapped_file=use_one_memory_mapped_file)
+            use_valgrind=USE_VALGRIND)
         self.plasma_store_name, self.p = self.plasma_store_ctx.__enter__()
         # Connect to Plasma.
         self.plasma_client = plasma.connect(self.plasma_store_name)
@@ -471,22 +469,26 @@ class TestPlasmaClient(object):
         memory_buffers.append(memory_buffer)
         # Remaining space is 50%. Make sure that we can't create an
         # object of size 50% + 1, but we can create one of size 20%.
-        assert_create_raises_plasma_full(self, 50 * PERCENT + 1)
+        assert_create_raises_plasma_full(
+            self, 50 * PERCENT + SMALL_OBJECT_SIZE)
         _, memory_buffer, _ = create_object(self.plasma_client, 20 * PERCENT)
         del memory_buffer
         _, memory_buffer, _ = create_object(self.plasma_client, 20 * PERCENT)
         del memory_buffer
-        assert_create_raises_plasma_full(self, 50 * PERCENT + 1)
+        assert_create_raises_plasma_full(
+            self, 50 * PERCENT + SMALL_OBJECT_SIZE)
 
         _, memory_buffer, _ = create_object(self.plasma_client, 20 * PERCENT)
         memory_buffers.append(memory_buffer)
         # Remaining space is 30%.
-        assert_create_raises_plasma_full(self, 30 * PERCENT + 1)
+        assert_create_raises_plasma_full(
+            self, 30 * PERCENT + SMALL_OBJECT_SIZE)
 
         _, memory_buffer, _ = create_object(self.plasma_client, 10 * PERCENT)
         memory_buffers.append(memory_buffer)
         # Remaining space is 20%.
-        assert_create_raises_plasma_full(self, 20 * PERCENT + 1)
+        assert_create_raises_plasma_full(
+            self, 20 * PERCENT + SMALL_OBJECT_SIZE)
 
     def test_contains(self):
         fake_object_ids = [random_object_id() for _ in range(100)]
@@ -838,7 +840,7 @@ class TestPlasmaClient(object):
             assert -1 == recv_dsize
             assert -1 == recv_msize
 
-    def test_use_one_memory_mapped_file(self):
+    def test_use_full_memory(self):
         # Fill the object store up with a large number of small objects and let
         # them go out of scope.
         for _ in range(100):
@@ -851,8 +853,8 @@ class TestPlasmaClient(object):
             create_object(self.plasma_client2, DEFAULT_PLASMA_STORE_MEMORY, 0)
         # Verify that an object that is too large does not fit.
         with pytest.raises(pa.lib.PlasmaStoreFull):
-            create_object(self.plasma_client2, DEFAULT_PLASMA_STORE_MEMORY + 1,
-                          0)
+            create_object(self.plasma_client2,
+                          DEFAULT_PLASMA_STORE_MEMORY + SMALL_OBJECT_SIZE, 0)
 
     def test_client_death_during_get(self):
         import pyarrow.plasma as plasma
@@ -916,6 +918,63 @@ class TestPlasmaClient(object):
                                 "to finish.")
             if not p.is_alive():
                 break
+
+
+@pytest.mark.plasma
+class TestEvictionToExternalStore(object):
+
+    def setup_method(self, test_method):
+        import pyarrow.plasma as plasma
+        # Start Plasma store.
+        self.plasma_store_ctx = plasma.start_plasma_store(
+            plasma_store_memory=1000 * 1024,
+            use_valgrind=USE_VALGRIND,
+            external_store=EXTERNAL_STORE)
+        self.plasma_store_name, self.p = self.plasma_store_ctx.__enter__()
+        # Connect to Plasma.
+        self.plasma_client = plasma.connect(self.plasma_store_name)
+
+    def teardown_method(self, test_method):
+        try:
+            # Check that the Plasma store is still alive.
+            assert self.p.poll() is None
+            self.p.send_signal(signal.SIGTERM)
+            if sys.version_info >= (3, 3):
+                self.p.wait(timeout=5)
+            else:
+                self.p.wait()
+        finally:
+            self.plasma_store_ctx.__exit__(None, None, None)
+
+    def test_eviction(self):
+        client = self.plasma_client
+
+        object_ids = [random_object_id() for _ in range(0, 20)]
+        data = b'x' * 100 * 1024
+        metadata = b''
+
+        for i in range(0, 20):
+            # Test for object non-existence.
+            assert not client.contains(object_ids[i])
+
+            # Create and seal the object.
+            client.create_and_seal(object_ids[i], data, metadata)
+
+            # Test that the client can get the object.
+            assert client.contains(object_ids[i])
+
+        for i in range(0, 20):
+            # Since we are accessing objects sequentially, every object we
+            # access would be a cache "miss" owing to LRU eviction.
+            # Try and access the object from the plasma store first, and then
+            # try external store on failure. This should succeed to fetch the
+            # object. However, it may evict the next few objects.
+            [result] = client.get_buffers([object_ids[i]])
+            assert result.to_pybytes() == data
+
+        # Make sure we still cannot fetch objects that do not exist
+        [result] = client.get_buffers([random_object_id()], timeout_ms=100)
+        assert result is None
 
 
 @pytest.mark.plasma

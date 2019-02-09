@@ -36,6 +36,22 @@ using std::string;
 
 namespace arrow {
 
+TEST(TestAllocate, Bitmap) {
+  std::shared_ptr<Buffer> new_buffer;
+  EXPECT_OK(AllocateBitmap(default_memory_pool(), 100, &new_buffer));
+  EXPECT_GE(new_buffer->size(), 13);
+  EXPECT_EQ(new_buffer->capacity() % 8, 0);
+}
+
+TEST(TestAllocate, EmptyBitmap) {
+  std::shared_ptr<Buffer> new_buffer;
+  EXPECT_OK(AllocateEmptyBitmap(default_memory_pool(), 100, &new_buffer));
+  EXPECT_EQ(new_buffer->size(), 13);
+  EXPECT_EQ(new_buffer->capacity() % 8, 0);
+  EXPECT_TRUE(std::all_of(new_buffer->data(), new_buffer->data() + new_buffer->capacity(),
+                          [](int8_t byte) { return byte == 0; }));
+}
+
 TEST(TestBuffer, FromStdString) {
   std::string val = "hello, world";
 
@@ -291,6 +307,22 @@ TYPED_TEST(TypedTestBufferBuilder, BasicTypedBufferBuilderUsage) {
   for (auto value : values) {
     ++data;
     ASSERT_EQ(*data, value);
+  }
+}
+
+TYPED_TEST(TypedTestBufferBuilder, AppendCopies) {
+  TypedBufferBuilder<TypeParam> builder;
+
+  ASSERT_OK(builder.Append(13, static_cast<TypeParam>(1)));
+  ASSERT_OK(builder.Append(17, static_cast<TypeParam>(0)));
+  ASSERT_EQ(builder.length(), 13 + 17);
+
+  std::shared_ptr<Buffer> built;
+  ASSERT_OK(builder.Finish(&built));
+
+  auto data = reinterpret_cast<const TypeParam*>(built->data());
+  for (int i = 0; i != 13 + 17; ++i, ++data) {
+    ASSERT_EQ(*data, static_cast<TypeParam>(i < 13)) << "index = " << i;
   }
 }
 

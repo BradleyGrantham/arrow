@@ -61,10 +61,6 @@ add_custom_command(
   COMMENT "Running flatc compiler on ${PLASMA_FBS_SRC}"
   VERBATIM)
 
-if(UNIX AND NOT APPLE)
-  link_libraries(rt)
-endif()
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
 set(PLASMA_SRCS
@@ -76,6 +72,7 @@ set(PLASMA_SRCS
   io.cc
   malloc.cc
   plasma.cc
+  plasma_allocator.cc
   protocol.cc
   thirdparty/ae/ae.c)
 
@@ -92,8 +89,8 @@ ADD_ARROW_LIB(plasma
   SOURCES ${PLASMA_SRCS}
   OUTPUTS PLASMA_LIBRARIES
   DEPENDENCIES gen_plasma_fbs
-  SHARED_LINK_LIBS ${FLATBUFFERS_STATIC_LIB} ${CMAKE_THREAD_LIBS_INIT} ${PLASMA_LINK_LIBS}
-  STATIC_LINK_LIBS ${FLATBUFFERS_STATIC_LIB} ${CMAKE_THREAD_LIBS_INIT} ${PLASMA_STATIC_LINK_LIBS})
+  SHARED_LINK_LIBS ${PLASMA_LINK_LIBS}
+  STATIC_LINK_LIBS ${PLASMA_STATIC_LINK_LIBS})
 
 add_dependencies(plasma ${PLASMA_LIBRARIES})
 
@@ -124,9 +121,11 @@ if ("${COMPILER_FAMILY}" STREQUAL "gcc")
     " -Wno-conversion")
 endif()
 
+list(APPEND PLASMA_EXTERNAL_STORE_SOURCES "external_store.cc" "hash_table_store.cc")
+
 # We use static libraries for the plasma_store_server executable so that it can
 # be copied around and used in different locations.
-add_executable(plasma_store_server store.cc)
+add_executable(plasma_store_server ${PLASMA_EXTERNAL_STORE_SOURCES} store.cc)
 target_link_libraries(plasma_store_server plasma_static ${PLASMA_STATIC_LINK_LIBS})
 add_dependencies(plasma plasma_store_server)
 
@@ -211,5 +210,8 @@ endfunction()
 ADD_PLASMA_TEST(test/serialization_tests
   EXTRA_LINK_LIBS plasma_shared ${PLASMA_LINK_LIBS})
 ADD_PLASMA_TEST(test/client_tests
+  EXTRA_LINK_LIBS plasma_shared ${PLASMA_LINK_LIBS}
+  EXTRA_DEPENDENCIES plasma_store_server)
+ADD_PLASMA_TEST(test/external_store_tests
   EXTRA_LINK_LIBS plasma_shared ${PLASMA_LINK_LIBS}
   EXTRA_DEPENDENCIES plasma_store_server)

@@ -26,7 +26,7 @@ if [ ! -e $CPP_TOOLCHAIN ]; then
     CONDA_LABEL=""
 
     if [ $ARROW_TRAVIS_GANDIVA == "1" ] && [ $TRAVIS_OS_NAME == "osx" ]; then
-        CONDA_PACKAGES="$CONDA_PACKAGES llvmdev=6.0.1"
+        CONDA_PACKAGES="$CONDA_PACKAGES llvmdev=$CONDA_LLVM_VERSION"
     fi
 
     if [ $TRAVIS_OS_NAME == "linux" ]; then
@@ -34,7 +34,7 @@ if [ ! -e $CPP_TOOLCHAIN ]; then
             CONDA_LABEL=" -c conda-forge/label/cf201901"
         else
             # Use newer binutils when linking against conda-provided libraries
-            CONDA_PACKAGES="$CONDA_PACKAGES binutils"
+            CONDA_PACKAGES="$CONDA_PACKAGES binutils=$CONDA_BINUTILS_VERSION"
         fi
     fi
 
